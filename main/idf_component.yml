@@ -1,0 +1,5 @@
+dependencies:
+  espressif/cjson:
+    version: "^1.7.19"
+  espressif/ethernet_init:
+    version: "~1.3.0"

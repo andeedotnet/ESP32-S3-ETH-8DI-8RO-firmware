@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Relay Board</title>
+  <link rel="stylesheet" href="/static/bootstrap/bootstrap.min.css">
+</head>
+
+<body class="bg-light">
+
+  <nav class="navbar navbar-expand navbar-dark bg-dark px-3">
+    <div class="container-fluid gap-3">
+      <span class="navbar-brand fw-semibold d-flex align-items-center gap-2 me-3">
+        <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" fill="currentColor" viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M5 0a.5.5 0 0 1 .5.5V2h1V.5a.5.5 0 0 1 1 0V2h1V.5a.5.5 0 0 1 1 0V2h1V.5a.5.5 0 0 1 1 0V2A2.5 2.5 0 0 1 14 4.5h1.5a.5.5 0 0 1 0 1H14v1h1.5a.5.5 0 0 1 0 1H14v1h1.5a.5.5 0 0 1 0 1H14v1h1.5a.5.5 0 0 1 0 1H14a2.5 2.5 0 0 1-2.5 2.5v1.5a.5.5 0 0 1-1 0V14h-1v1.5a.5.5 0 0 1-1 0V14h-1v1.5a.5.5 0 0 1-1 0V14h-1v1.5a.5.5 0 0 1-1 0V14A2.5 2.5 0 0 1 2 11.5H.5a.5.5 0 0 1 0-1H2v-1H.5a.5.5 0 0 1 0-1H2v-1H.5a.5.5 0 0 1 0-1H2v-1H.5a.5.5 0 0 1 0-1H2A2.5 2.5 0 0 1 4.5 2V.5A.5.5 0 0 1 5 0m-.5 3A1.5 1.5 0 0 0 3 4.5v7A1.5 1.5 0 0 0 4.5 13h7a1.5 1.5 0 0 0 1.5-1.5v-7A1.5 1.5 0 0 0 11.5 3zM5 6.5A1.5 1.5 0 0 1 6.5 5h3A1.5 1.5 0 0 1 11 6.5v3A1.5 1.5 0 0 1 9.5 11h-3A1.5 1.5 0 0 1 5 9.5zM6.5 6a.5.5 0 0 0-.5.5v3a.5.5 0 0 0 .5.5h3a.5.5 0 0 0 .5-.5v-3a.5.5 0 0 0-.5-.5z" />
+        </svg>
+        Relay Board
+      </span>
+      <ul class="navbar-nav flex-row gap-1" id="mainTabs" role="tablist">
+        <li class="nav-item" role="presentation">
+          <button class="nav-link active px-2" data-bs-toggle="tab" data-bs-target="#page-relays" type="button" role="tab">Relays</button>
+        </li>
+        <li class="nav-item" role="presentation">
+          <button class="nav-link px-2" data-bs-toggle="tab" data-bs-target="#page-inputs" type="button" role="tab">Inputs</button>
+        </li>
+        <li class="nav-item" role="presentation">
+          <button class="nav-link px-2" data-bs-toggle="tab" data-bs-target="#page-network" type="button" role="tab">Network</button>
+        </li>
+        <li class="nav-item" role="presentation">
+          <button class="nav-link px-2" data-bs-toggle="tab" data-bs-target="#page-webhooks" type="button" role="tab">Webhooks</button>
+        </li>
+        <li class="nav-item" role="presentation">
+          <button class="nav-link px-2" data-bs-toggle="tab" data-bs-target="#page-ntp" type="button" role="tab">NTP</button>
+        </li>
+        <li class="nav-item" role="presentation">
+          <button class="nav-link px-2" data-bs-toggle="tab" data-bs-target="#page-api" type="button" role="tab">API</button>
+        </li>
+      </ul>
+    </div>
+  </nav>
+
+  <div class="container-fluid py-4">
+    <div class="tab-content">
+
+      <!-- Relays -->
+      <div class="tab-pane fade show active" id="page-relays" role="tabpanel">
+        <div class="card shadow-sm">
+          <div class="card-header">
+            <h6 class="mb-0 text-uppercase text-secondary fw-semibold small">Relay Control</h6>
+          </div>
+          <div class="card-body">
+            <div class="row row-cols-4 g-2" id="relay-grid"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Inputs — state + mode + relay target combined -->
+      <div class="tab-pane fade" id="page-inputs" role="tabpanel">
+        <div class="card shadow-sm">
+          <div class="card-header">
+            <h6 class="mb-0 text-uppercase text-secondary fw-semibold small">Digital Inputs &amp; Switch Modes</h6>
+          </div>
+          <div class="card-body p-0">
+            <p class="text-secondary small m-3 mb-2">
+              <strong>Momentary</strong> — rising edge toggles the target relay. &nbsp;
+              <strong>Latching</strong> — relay ON while input is LOW, OFF while HIGH.
+              Relay selection is ignored when mode is OFF.
+            </p>
+            <div class="table-responsive">
+              <table class="table table-sm align-middle mb-0">
+                <thead class="table-light">
+                  <tr>
+                    <th>Input</th>
+                    <th>State</th>
+                    <th>Switch Mode</th>
+                    <th>Target Relay</th>
+                  </tr>
+                </thead>
+                <tbody id="input-tbody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Network -->
+      <div class="tab-pane fade" id="page-network" role="tabpanel">
+        <div class="card shadow-sm mb-3">
+          <div class="card-header">
+            <h6 class="mb-0 text-uppercase text-secondary fw-semibold small">Network Status</h6>
+          </div>
+          <div class="card-body">
+            <div class="d-flex gap-2 flex-wrap" id="net-status"></div>
+          </div>
+        </div>
+        <div class="card shadow-sm">
+          <div class="card-header">
+            <h6 class="mb-0 text-uppercase text-secondary fw-semibold small">WiFi Settings</h6>
+          </div>
+          <div class="card-body">
+            <div class="mb-3">
+              <label class="form-label" for="wifi-ssid">SSID</label>
+              <input type="text" class="form-control" id="wifi-ssid" autocomplete="off">
+            </div>
+            <div class="mb-3">
+              <label class="form-label" for="wifi-pass">Password</label>
+              <input type="password" class="form-control" id="wifi-pass" autocomplete="off">
+            </div>
+            <button class="btn btn-dark" onclick="saveWifi()">Save &amp; Connect</button>
+            <div class="small mt-2" id="wifi-status"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Webhooks -->
+      <div class="tab-pane fade" id="page-webhooks" role="tabpanel">
+        <div class="card shadow-sm">
+          <div class="card-header">
+            <h6 class="mb-0 text-uppercase text-secondary fw-semibold small">Webhook Configuration</h6>
+          </div>
+          <div class="card-body">
+            <p class="text-secondary small mb-3">HTTP POST is sent to the configured URL when the input changes state. Switch mode (Momentary/Latching) and webhooks are independent — both can be active simultaneously.</p>
+            <div class="table-responsive">
+              <table class="table table-sm align-middle mb-0">
+                <thead class="table-light">
+                  <tr>
+                    <th>Input</th>
+                    <th>Enabled</th>
+                    <th>URL</th>
+                    <th>Trigger</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody id="wh-tbody"></tbody>
+              </table>
+            </div>
+            <div class="small mt-2" id="wh-status"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- NTP -->
+      <div class="tab-pane fade" id="page-ntp" role="tabpanel">
+        <div class="card shadow-sm">
+          <div class="card-header">
+            <h6 class="mb-0 text-uppercase text-secondary fw-semibold small">NTP Time Synchronisation</h6>
+          </div>
+          <div class="card-body">
+            <div class="mb-3">
+              <label class="form-label" for="ntp-server">NTP Server</label>
+              <input type="text" class="form-control" id="ntp-server" value="pool.ntp.org" autocomplete="off">
+            </div>
+            <div class="mb-3">
+              <label class="form-label" for="ntp-tz">Timezone <span class="text-secondary">(POSIX TZ string)</span></label>
+              <input type="text" class="form-control" id="ntp-tz" value="UTC0" autocomplete="off">
+              <div class="form-text">
+                Examples: <code>UTC0</code> &nbsp;·&nbsp; <code>CET-1CEST,M3.5.0,M10.5.0/3</code> &nbsp;·&nbsp; <code>EST5EDT,M3.2.0,M11.1.0</code>
+              </div>
+            </div>
+            <div class="mb-3">
+              <span class="text-secondary small me-2">Status:</span>
+              <span class="badge rounded-pill text-bg-secondary" id="ntp-status-badge">Loading...</span>
+            </div>
+            <button class="btn btn-dark" onclick="saveNtp()">Save &amp; Sync</button>
+            <div class="small mt-2" id="ntp-save-status"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- API Docs -->
+      <div class="tab-pane fade" id="page-api" role="tabpanel">
+        <div class="card shadow-sm">
+          <div class="card-header">
+            <h6 class="mb-0 text-uppercase text-secondary fw-semibold small">REST API Reference</h6>
+          </div>
+          <div class="card-body">
+            <p class="text-secondary small mb-3">
+              Base URL: <code class="bg-light px-1 rounded">http://&lt;device-ip&gt;</code> &nbsp;·&nbsp;
+              All request and response bodies are <strong>JSON</strong> &nbsp;·&nbsp;
+              Click an endpoint to expand.
+            </p>
+
+            <div class="accordion" id="apiAccordion">
+
+              <div class="accordion-item">
+                <h2 class="accordion-header">
+                  <button class="accordion-button collapsed py-2" type="button" data-bs-toggle="collapse" data-bs-target="#ep1">
+                    <span class="badge text-bg-info me-2">GET</span>
+                    <code>/api/v1/relays</code>
+                    <span class="ms-3 text-secondary small d-none d-sm-inline">Read all relay states</span>
+                  </button>
+                </h2>
+                <div id="ep1" class="accordion-collapse collapse">
+                  <div class="accordion-body">
+                    <h6 class="text-uppercase text-secondary small fw-semibold">Response</h6>
+                    <pre class="bg-light rounded p-2 small">{"relays": [0, 1, 0, 0, 0, 0, 0, 1]}</pre>
+                    <p class="text-secondary small mb-0">Array index 0 = Relay 1. <code>1</code> = ON, <code>0</code> = OFF.</p>
+                  </div>
+                </div>
+              </div>
+
+              <div class="accordion-item">
+                <h2 class="accordion-header">
+                  <button class="accordion-button collapsed py-2" type="button" data-bs-toggle="collapse" data-bs-target="#ep2">
+                    <span class="badge text-bg-warning me-2">POST</span>
+                    <code>/api/v1/relays/{n}</code>
+                    <span class="ms-3 text-secondary small d-none d-sm-inline">Set a single relay</span>
+                  </button>
+                </h2>
+                <div id="ep2" class="accordion-collapse collapse">
+                  <div class="accordion-body">
+                    <p class="text-secondary small"><code>n</code> = relay number 1–8.</p>
+                    <h6 class="text-uppercase text-secondary small fw-semibold">Request body</h6>
+                    <pre class="bg-light rounded p-2 small">{"state": 1}</pre>
+                    <h6 class="text-uppercase text-secondary small fw-semibold">Response</h6>
+                    <pre class="bg-light rounded p-2 small mb-0">{"relay": 3, "state": 1}</pre>
+                  </div>
+                </div>
+              </div>
+
+              <div class="accordion-item">
+                <h2 class="accordion-header">
+                  <button class="accordion-button collapsed py-2" type="button" data-bs-toggle="collapse" data-bs-target="#ep3">
+                    <span class="badge text-bg-info me-2">GET</span>
+                    <code>/api/v1/inputs</code>
+                    <span class="ms-3 text-secondary small d-none d-sm-inline">Read all digital input states</span>
+                  </button>
+                </h2>
+                <div id="ep3" class="accordion-collapse collapse">
+                  <div class="accordion-body">
+                    <h6 class="text-uppercase text-secondary small fw-semibold">Response</h6>
+                    <pre class="bg-light rounded p-2 small mb-0">{"inputs": [1, 0, 0, 0, 1, 0, 0, 0]}</pre>
+                  </div>
+                </div>
+              </div>
+
+              <div class="accordion-item">
+                <h2 class="accordion-header">
+                  <button class="accordion-button collapsed py-2" type="button" data-bs-toggle="collapse" data-bs-target="#ep4">
+                    <span class="badge text-bg-info me-2">GET</span>
+                    <code>/api/v1/input_modes</code>
+                    <span class="ms-3 text-secondary small d-none d-sm-inline">Read all input switch modes</span>
+                  </button>
+                </h2>
+                <div id="ep4" class="accordion-collapse collapse">
+                  <div class="accordion-body">
+                    <h6 class="text-uppercase text-secondary small fw-semibold">Response</h6>
+                    <pre class="bg-light rounded p-2 small">{"modes": [{"mode":0,"relay":1}, {"mode":1,"relay":3}, ...]}</pre>
+                    <p class="text-secondary small mb-0"><code>mode</code>: <code>0</code>=OFF · <code>1</code>=Momentary · <code>2</code>=Latching. <code>relay</code>: 1–8 target relay.</p>
+                  </div>
+                </div>
+              </div>
+
+              <div class="accordion-item">
+                <h2 class="accordion-header">
+                  <button class="accordion-button collapsed py-2" type="button" data-bs-toggle="collapse" data-bs-target="#ep5">
+                    <span class="badge text-bg-warning me-2">POST</span>
+                    <code>/api/v1/input_modes/{n}</code>
+                    <span class="ms-3 text-secondary small d-none d-sm-inline">Set switch mode for one input</span>
+                  </button>
+                </h2>
+                <div id="ep5" class="accordion-collapse collapse">
+                  <div class="accordion-body">
+                    <p class="text-secondary small"><code>n</code> = input number 1–8.</p>
+                    <h6 class="text-uppercase text-secondary small fw-semibold">Request body</h6>
+                    <pre class="bg-light rounded p-2 small">{"mode": 1, "relay": 3}</pre>
+                    <p class="text-secondary small mb-0"><code>mode</code>: <code>0</code>=OFF · <code>1</code>=Momentary · <code>2</code>=Latching. <code>relay</code>: 1–8 target relay (persisted).</p>
+                  </div>
+                </div>
+              </div>
+
+              <div class="accordion-item">
+                <h2 class="accordion-header">
+                  <button class="accordion-button collapsed py-2" type="button" data-bs-toggle="collapse" data-bs-target="#ep6">
+                    <span class="badge text-bg-info me-2">GET</span>
+                    <code>/api/v1/network</code>
+                    <span class="ms-3 text-secondary small d-none d-sm-inline">Read network status</span>
+                  </button>
+                </h2>
+                <div id="ep6" class="accordion-collapse collapse">
+                  <div class="accordion-body">
+                    <pre class="bg-light rounded p-2 small mb-0">{"wifi_ssid":"MyNet","eth_connected":true,"wifi_connected":false,"eth_ip":"192.168.1.219","wifi_ip":""}</pre>
+                  </div>
+                </div>
+              </div>
+
+              <div class="accordion-item">
+                <h2 class="accordion-header">
+                  <button class="accordion-button collapsed py-2" type="button" data-bs-toggle="collapse" data-bs-target="#ep7">
+                    <span class="badge text-bg-warning me-2">POST</span>
+                    <code>/api/v1/network/wifi</code>
+                    <span class="ms-3 text-secondary small d-none d-sm-inline">Save WiFi credentials and reconnect</span>
+                  </button>
+                </h2>
+                <div id="ep7" class="accordion-collapse collapse">
+                  <div class="accordion-body">
+                    <pre class="bg-light rounded p-2 small mb-0">{"ssid": "MyNetwork", "password": "secret"}</pre>
+                  </div>
+                </div>
+              </div>
+
+              <div class="accordion-item">
+                <h2 class="accordion-header">
+                  <button class="accordion-button collapsed py-2" type="button" data-bs-toggle="collapse" data-bs-target="#ep8">
+                    <span class="badge text-bg-info me-2">GET</span>
+                    <code>/api/v1/webhooks</code>
+                    <span class="ms-3 text-secondary small d-none d-sm-inline">Read all webhook configurations</span>
+                  </button>
+                </h2>
+                <div id="ep8" class="accordion-collapse collapse">
+                  <div class="accordion-body">
+                    <pre class="bg-light rounded p-2 small mb-0">{"webhooks":[{"input":1,"url":"http://...","trigger":"rising","enabled":true}, ...]}</pre>
+                  </div>
+                </div>
+              </div>
+
+              <div class="accordion-item">
+                <h2 class="accordion-header">
+                  <button class="accordion-button collapsed py-2" type="button" data-bs-toggle="collapse" data-bs-target="#ep9">
+                    <span class="badge text-bg-warning me-2">POST</span>
+                    <code>/api/v1/webhooks/{n}</code>
+                    <span class="ms-3 text-secondary small d-none d-sm-inline">Set webhook for one input</span>
+                  </button>
+                </h2>
+                <div id="ep9" class="accordion-collapse collapse">
+                  <div class="accordion-body">
+                    <p class="text-secondary small"><code>n</code> = input number 1–8.</p>
+                    <h6 class="text-uppercase text-secondary small fw-semibold">Request body</h6>
+                    <pre class="bg-light rounded p-2 small">{"url": "http://192.168.1.10/hook", "trigger": "change", "enabled": true}</pre>
+                    <h6 class="text-uppercase text-secondary small fw-semibold">Webhook POST payload sent to your URL</h6>
+                    <pre class="bg-light rounded p-2 small mb-0">{"input": 1, "state": 1, "trigger": "rising", "timestamp_ms": 1234567}</pre>
+                  </div>
+                </div>
+              </div>
+
+              <div class="accordion-item">
+                <h2 class="accordion-header">
+                  <button class="accordion-button collapsed py-2" type="button" data-bs-toggle="collapse" data-bs-target="#ep10">
+                    <span class="badge text-bg-info me-2">GET</span>
+                    <code>/api/v1/ntp</code>
+                    <span class="ms-3 text-secondary small d-none d-sm-inline">Read NTP config and current time</span>
+                  </button>
+                </h2>
+                <div id="ep10" class="accordion-collapse collapse">
+                  <div class="accordion-body">
+                    <pre class="bg-light rounded p-2 small mb-0">{"server":"pool.ntp.org","tz":"UTC0","time":"2026-05-20T12:34:56","synced":true}</pre>
+                  </div>
+                </div>
+              </div>
+
+              <div class="accordion-item">
+                <h2 class="accordion-header">
+                  <button class="accordion-button collapsed py-2" type="button" data-bs-toggle="collapse" data-bs-target="#ep11">
+                    <span class="badge text-bg-warning me-2">POST</span>
+                    <code>/api/v1/ntp</code>
+                    <span class="ms-3 text-secondary small d-none d-sm-inline">Save NTP config and restart sync</span>
+                  </button>
+                </h2>
+                <div id="ep11" class="accordion-collapse collapse">
+                  <div class="accordion-body">
+                    <pre class="bg-light rounded p-2 small mb-0">{"server": "pool.ntp.org", "tz": "CET-1CEST,M3.5.0,M10.5.0/3"}</pre>
+                  </div>
+                </div>
+              </div>
+
+              <div class="accordion-item">
+                <h2 class="accordion-header">
+                  <button class="accordion-button collapsed py-2" type="button" data-bs-toggle="collapse" data-bs-target="#ep12">
+                    <span class="badge text-bg-info me-2">GET</span>
+                    <code>/api/v1/state</code>
+                    <span class="ms-3 text-secondary small d-none d-sm-inline">Combined relay + input snapshot</span>
+                  </button>
+                </h2>
+                <div id="ep12" class="accordion-collapse collapse">
+                  <div class="accordion-body">
+                    <p class="text-secondary small">Returns relay and input states in one request. The web UI polls this endpoint every 500 ms for live updates.</p>
+                    <pre class="bg-light rounded p-2 small mb-0">{"relays":[0,1,0,0,0,0,0,0],"inputs":[1,0,0,0,0,0,0,0]}</pre>
+                  </div>
+                </div>
+              </div>
+
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+  <script src="/static/bootstrap/bootstrap.min.js"></script>
+</body>
+
+</html>
