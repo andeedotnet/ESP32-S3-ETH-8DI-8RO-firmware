@@ -1,6 +1,7 @@
 #include "ethernet/ethernet.h"
 #include "app_state.h"
 #include "led/led.h"
+#include "nvs_config/nvs_config.h"
 #include "esp_log.h"
 #include "esp_eth.h"
 #include "esp_event.h"
@@ -40,6 +41,39 @@ static void eth_event_handler(void *arg, esp_event_base_t base, int32_t id, void
     }
 }
 
+/* Apply a stored static IP config to the Ethernet netif before the link starts.
+ * No-op (leaves the DHCP client running) when configured for DHCP or when the
+ * stored address is incomplete. */
+static void eth_apply_ip_config(esp_netif_t *netif)
+{
+    nvs_ipcfg_t cfg;
+    nvs_config_get_ipcfg(&cfg);
+    if (cfg.dhcp) {
+        ESP_LOGI(TAG, "Ethernet: DHCP");
+        return;
+    }
+    esp_netif_ip_info_t ip_info = {0};
+    ip_info.ip.addr      = esp_ip4addr_aton(cfg.ip);
+    ip_info.netmask.addr = esp_ip4addr_aton(cfg.netmask);
+    ip_info.gw.addr      = esp_ip4addr_aton(cfg.gateway);
+    if (ip_info.ip.addr == 0 || ip_info.netmask.addr == 0) {
+        ESP_LOGW(TAG, "Static IP config incomplete (ip/netmask) — falling back to DHCP");
+        return;
+    }
+
+    esp_netif_dhcpc_stop(netif);  /* harmless if already stopped */
+    ESP_ERROR_CHECK(esp_netif_set_ip_info(netif, &ip_info));
+
+    uint32_t dns_addr = esp_ip4addr_aton(cfg.dns);
+    if (dns_addr != 0) {
+        esp_netif_dns_info_t dns = {0};
+        dns.ip.type            = ESP_IPADDR_TYPE_V4;
+        dns.ip.u_addr.ip4.addr = dns_addr;
+        esp_netif_set_dns_info(netif, ESP_NETIF_DNS_MAIN, &dns);
+    }
+    ESP_LOGI(TAG, "Ethernet: static IP %s mask %s gw %s", cfg.ip, cfg.netmask, cfg.gateway);
+}
+
 esp_err_t eth_init(void)
 {
     uint8_t eth_port_cnt = 0;
@@ -54,6 +88,8 @@ esp_err_t eth_init(void)
 
     esp_eth_netif_glue_handle_t glue = esp_eth_new_netif_glue(eth_handles[0]);
     ESP_ERROR_CHECK(esp_netif_attach(eth_netif, glue));
+
+    eth_apply_ip_config(eth_netif);
 
     ESP_ERROR_CHECK(esp_event_handler_register(ETH_EVENT,  ESP_EVENT_ANY_ID,   eth_event_handler, NULL));
     ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT,   IP_EVENT_ETH_GOT_IP, eth_event_handler, NULL));

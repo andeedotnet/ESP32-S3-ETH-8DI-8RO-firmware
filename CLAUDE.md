@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Custom ESP-IDF v6.0.1 firmware for the **ESP32-S3-ETH-8DI-8RO** industrial board: 8 relay outputs (TCA9554PWR I2C expander), 8 optocoupler-isolated digital inputs (GPIO4–11), W5500 SPI Ethernet, WiFi station mode, WS2812 RGB LED, buzzer. Exposes a REST API and a single-page web UI (relay control, input monitoring, WiFi settings, webhook config, input mode selection, API docs).
+Custom ESP-IDF v6.0.1 firmware for the **ESP32-S3-ETH-8DI-8RO** industrial board: 8 relay outputs (TCA9554PWR I2C expander), 8 optocoupler-isolated digital inputs (GPIO4–11), W5500 SPI Ethernet, WiFi station mode, WS2812 RGB LED, buzzer. Exposes a REST API and a single-page web UI (relay control, input monitoring, network settings incl. static IP, webhook config, input mode selection, system info, API docs). Discoverable via mDNS as `relay.local`.
 
 ## Build & Flash
 
@@ -36,19 +36,19 @@ idf.py -p /dev/cu.usbmodem* erase-flash
 
 ## Code Architecture
 
-All source lives in `main/` as a **single ESP-IDF component**. Sub-directories are plain source folders — not separate components. `main/CMakeLists.txt` registers everything in one `idf_component_register()`. External dependencies (`espressif/cjson`, `espressif/ethernet_init`) are declared in `main/idf_component.yml`.
+All source lives in `main/` as a **single ESP-IDF component**. Sub-directories are plain source folders — not separate components. `main/CMakeLists.txt` registers everything in one `idf_component_register()`. External dependencies (`espressif/cjson`, `espressif/ethernet_init`, `espressif/mdns`) are declared in `main/idf_component.yml`.
 
 | Module | Path | Purpose |
 |--------|------|---------|
 | `app_state` | `main/` | Shared runtime state struct + FreeRTOS mutex (`g_state`, `g_state_mutex`) |
 | `board_config.h` | `main/` | All GPIO/I2C/SPI pin and address constants — single source of truth |
 | `i2c_bus` | `main/i2c_bus/` | Shared `i2c_master_bus_handle_t`; both TCA9554 and PCF85063 attach to it |
-| `relay` | `main/relay/` | TCA9554PWR driver; shadow byte for read-modify-write without I2C readback |
+| `relay` | `main/relay/` | TCA9554PWR driver; shadow byte for read-modify-write without I2C readback. All mutators (`relay_set`, `relay_set_masked`, `relay_toggle_mask`) funnel through one locked RMW helper — multi-relay ops are atomic w.r.t. concurrent callers |
 | `digital_input` | `main/digital_input/` | GPIO ISR → 20 ms debounce task → `g_di_change_queue` |
-| `ethernet` | `main/ethernet/` | W5500 via `espressif/ethernet_init ~1.3.0`; sets `LED_CONNECTED` on IP event |
+| `ethernet` | `main/ethernet/` | W5500 via `espressif/ethernet_init ~1.3.0`; sets `LED_CONNECTED` on IP event. Applies stored static IP (DHCP by default) to the netif before link start via `eth_apply_ip_config()` |
 | `wifi_manager` | `main/wifi/` | STA mode, always reconnects on disconnect (no give-up limit) with exponential backoff 1→30 s via `esp_timer`, credentials from NVS |
 | `ntp` | `main/ntp/` | SNTP init from NVS server + timezone; restartable via `ntp_init()` |
-| `nvs_config` | `main/nvs_config/` | NVS namespace `"app_cfg"`: WiFi creds, 8 webhook configs, 8 input modes + relay targets, NTP server/tz |
+| `nvs_config` | `main/nvs_config/` | NVS namespace `"app_cfg"`: WiFi creds, 8 webhook configs, 8 input modes + relay targets, NTP server/tz, Ethernet IP config. **All config is mirrored in a mutex-protected RAM cache loaded once at init** — getters read RAM (hot paths never touch flash), setters write flash + update the cache |
 | `http_server` | `main/http_server/` | REST endpoints + serves embedded web UI assets; wildcard URI matching |
 | `webhook` | `main/webhook/` | Consumes `g_di_change_queue`; relay dispatch (momentary/latching) + webhook POST (independent of relay mode) |
 | `led` | `main/led/` | WS2812 via RMT copy encoder; pattern queue (depth 1, `xQueueOverwrite`) |
@@ -108,15 +108,19 @@ Relay control goes through the TCA9554 expander — not directly via ESP32 GPIOs
 | GET | `/api/v1/state` | Combined snapshot `{"relays":[...],"inputs":[...]}` — used for 500 ms polling |
 | GET | `/api/v1/input_modes` | All input modes `{"modes":[{"mode":0,"relay_mask":1},...]}` |
 | POST | `/api/v1/input_modes/{1-8}` | Set input mode `{"mode":1,"relay_mask":3}` |
-| GET | `/api/v1/network` | Network status + stored SSID |
+| GET | `/api/v1/network` | Network status + stored SSID + `eth_ipcfg` (DHCP/static) |
 | POST | `/api/v1/network/wifi` | Save WiFi creds `{"ssid":"…","password":"…"}` |
+| POST | `/api/v1/network/ip` | Save Ethernet IP config `{"dhcp":false,"ip":"…","netmask":"…","gateway":"…","dns":"…"}` — applied on next reboot |
 | GET | `/api/v1/webhooks` | All webhook configs (includes `enabled` field) |
 | POST | `/api/v1/webhooks/{1-8}` | Set webhook `{"url":"…","trigger":"rising","enabled":true}` |
 | GET | `/api/v1/ntp` | NTP config + current time `{"server":"…","tz":"…","time":"…","synced":true}` |
 | POST | `/api/v1/ntp` | Set NTP `{"server":"pool.ntp.org","tz":"CET-1CEST,M3.5.0,M10.5.0/3"}` |
+| GET | `/api/v1/system` | Runtime info `{"fw_version":…,"idf_version":…,"uptime_s":…,"free_heap":…,"min_free_heap":…,"largest_block":…,"reset_reason":…}` |
 
 **Robustness notes:**
 - All JSON handlers NULL-check `cJSON_PrintUnformatted()` and return HTTP 500 on heap exhaustion.
+- `read_body()` rejects a body larger than the handler buffer with HTTP 413 (rather than silently truncating it to an empty body) and sends its own 408/400 on recv errors; handlers just propagate `ESP_FAIL`.
+- Static IP config is applied to the Ethernet netif at boot only; `POST /api/v1/network/ip` persists it and returns `reboot_required:true` (no live re-addressing of an up interface).
 - WiFi always retries on disconnect — no give-up limit — but with exponential backoff (1→30 s) so a down/flapping AP can't spin a tight reconnect loop. Backoff resets on `GOT_IP` and on user-initiated reconnect.
 - Webhook HTTP timeout is 3 s; task WDT is 15 s (`CONFIG_ESP_TASK_WDT_TIMEOUT_S=15`) with `CONFIG_ESP_TASK_WDT_PANIC=y` — a genuinely hung task reboots the board.
 - `webhook_task`, `di_task` and the `health` task are subscribed to the Task WDT (`esp_task_wdt_add`) and feed it each loop; their queue receives use a 1 s timeout so a blocked task still resets the dog rather than waiting on `portMAX_DELAY`.

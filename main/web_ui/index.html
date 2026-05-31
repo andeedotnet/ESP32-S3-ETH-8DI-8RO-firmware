@@ -35,6 +35,9 @@
           <button class="nav-link px-2" data-bs-toggle="tab" data-bs-target="#page-ntp" type="button" role="tab">NTP</button>
         </li>
         <li class="nav-item" role="presentation">
+          <button class="nav-link px-2" data-bs-toggle="tab" data-bs-target="#page-system" type="button" role="tab">System</button>
+        </li>
+        <li class="nav-item" role="presentation">
           <button class="nav-link px-2" data-bs-toggle="tab" data-bs-target="#page-api" type="button" role="tab">API</button>
         </li>
       </ul>
@@ -112,6 +115,40 @@
             <div class="small mt-2" id="wifi-status"></div>
           </div>
         </div>
+        <div class="card shadow-sm mt-3">
+          <div class="card-header">
+            <h6 class="mb-0 text-uppercase text-secondary fw-semibold small">Ethernet IP Configuration</h6>
+          </div>
+          <div class="card-body">
+            <p class="text-secondary small mb-3">Applies to the wired Ethernet interface. Changes take effect after a reboot.</p>
+            <div class="btn-group mb-3" role="group">
+              <input type="radio" class="btn-check" name="ip-mode" id="ip-dhcp" value="dhcp" onchange="onIpModeChange()">
+              <label class="btn btn-outline-secondary" for="ip-dhcp">DHCP</label>
+              <input type="radio" class="btn-check" name="ip-mode" id="ip-static" value="static" onchange="onIpModeChange()">
+              <label class="btn btn-outline-secondary" for="ip-static">Static</label>
+            </div>
+            <div id="ip-static-fields" class="row g-2">
+              <div class="col-12 col-sm-6">
+                <label class="form-label small" for="ip-addr">IP Address</label>
+                <input type="text" class="form-control form-control-sm" id="ip-addr" placeholder="192.168.1.50" autocomplete="off">
+              </div>
+              <div class="col-12 col-sm-6">
+                <label class="form-label small" for="ip-mask">Subnet Mask</label>
+                <input type="text" class="form-control form-control-sm" id="ip-mask" placeholder="255.255.255.0" autocomplete="off">
+              </div>
+              <div class="col-12 col-sm-6">
+                <label class="form-label small" for="ip-gw">Gateway</label>
+                <input type="text" class="form-control form-control-sm" id="ip-gw" placeholder="192.168.1.1" autocomplete="off">
+              </div>
+              <div class="col-12 col-sm-6">
+                <label class="form-label small" for="ip-dns">DNS</label>
+                <input type="text" class="form-control form-control-sm" id="ip-dns" placeholder="192.168.1.1" autocomplete="off">
+              </div>
+            </div>
+            <button class="btn btn-dark mt-3" onclick="saveIpConfig()">Save</button>
+            <div class="small mt-2" id="ip-status"></div>
+          </div>
+        </div>
       </div>
 
       <!-- Webhooks -->
@@ -165,6 +202,23 @@
             </div>
             <button class="btn btn-dark" onclick="saveNtp()">Save &amp; Sync</button>
             <div class="small mt-2" id="ntp-save-status"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- System -->
+      <div class="tab-pane fade" id="page-system" role="tabpanel">
+        <div class="card shadow-sm">
+          <div class="card-header d-flex justify-content-between align-items-center">
+            <h6 class="mb-0 text-uppercase text-secondary fw-semibold small">System Information</h6>
+            <button class="btn btn-sm btn-outline-secondary" onclick="loadSystem()">Refresh</button>
+          </div>
+          <div class="card-body p-0">
+            <table class="table table-sm mb-0">
+              <tbody id="system-tbody">
+                <tr><td class="text-secondary">Loading…</td></tr>
+              </tbody>
+            </table>
           </div>
         </div>
       </div>
@@ -281,7 +335,7 @@
                 </h2>
                 <div id="ep6" class="accordion-collapse collapse">
                   <div class="accordion-body">
-                    <pre class="bg-light rounded p-2 small mb-0">{"wifi_ssid":"MyNet","eth_connected":true,"wifi_connected":false,"eth_ip":"192.168.1.219","wifi_ip":""}</pre>
+                    <pre class="bg-light rounded p-2 small mb-0">{"wifi_ssid":"MyNet","eth_connected":true,"wifi_connected":false,"eth_ip":"192.168.1.219","wifi_ip":"","eth_ipcfg":{"dhcp":true,"ip":"","netmask":"","gateway":"","dns":""}}</pre>
                   </div>
                 </div>
               </div>
@@ -377,6 +431,40 @@
                   <div class="accordion-body">
                     <p class="text-secondary small">Returns relay and input states in one request. The web UI polls this endpoint every 500 ms for live updates.</p>
                     <pre class="bg-light rounded p-2 small mb-0">{"relays":[0,1,0,0,0,0,0,0],"inputs":[1,0,0,0,0,0,0,0]}</pre>
+                  </div>
+                </div>
+              </div>
+
+              <div class="accordion-item">
+                <h2 class="accordion-header">
+                  <button class="accordion-button collapsed py-2" type="button" data-bs-toggle="collapse" data-bs-target="#ep13">
+                    <span class="badge text-bg-warning me-2">POST</span>
+                    <code>/api/v1/network/ip</code>
+                    <span class="ms-3 text-secondary small d-none d-sm-inline">Set Ethernet IP config (reboot to apply)</span>
+                  </button>
+                </h2>
+                <div id="ep13" class="accordion-collapse collapse">
+                  <div class="accordion-body">
+                    <p class="text-secondary small">Stored config applied to the Ethernet interface on next boot. <code>dhcp:true</code> ignores the address fields.</p>
+                    <h6 class="text-uppercase text-secondary small fw-semibold">Request body</h6>
+                    <pre class="bg-light rounded p-2 small">{"dhcp": false, "ip": "192.168.1.50", "netmask": "255.255.255.0", "gateway": "192.168.1.1", "dns": "192.168.1.1"}</pre>
+                    <h6 class="text-uppercase text-secondary small fw-semibold">Response</h6>
+                    <pre class="bg-light rounded p-2 small mb-0">{"ok": true, "reboot_required": true}</pre>
+                  </div>
+                </div>
+              </div>
+
+              <div class="accordion-item">
+                <h2 class="accordion-header">
+                  <button class="accordion-button collapsed py-2" type="button" data-bs-toggle="collapse" data-bs-target="#ep14">
+                    <span class="badge text-bg-info me-2">GET</span>
+                    <code>/api/v1/system</code>
+                    <span class="ms-3 text-secondary small d-none d-sm-inline">Firmware &amp; runtime info</span>
+                  </button>
+                </h2>
+                <div id="ep14" class="accordion-collapse collapse">
+                  <div class="accordion-body">
+                    <pre class="bg-light rounded p-2 small mb-0">{"fw_version":"1.0.0","fw_built":"May 31 2026","idf_version":"v6.0.1","uptime_s":3600,"free_heap":210000,"min_free_heap":190000,"largest_block":110000,"reset_reason":"poweron"}</pre>
                   </div>
                 </div>
               </div>

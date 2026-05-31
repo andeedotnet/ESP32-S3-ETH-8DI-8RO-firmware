@@ -31,7 +31,9 @@ idf_component_register(
         esp_timer
         cjson
         ethernet_init
+        mdns
         lwip
+        esp_app_format
 )
 
 # Embed the single-page web UI HTML directly into the firmware binary

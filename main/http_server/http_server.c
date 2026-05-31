@@ -16,6 +16,11 @@
 #include <stdio.h>
 #include <time.h>
 #include "esp_sntp.h"
+#include "esp_system.h"
+#include "esp_app_desc.h"
+#include "esp_idf_version.h"
+#include "esp_timer.h"
+#include "esp_heap_caps.h"
 
 static const char *TAG = "http";
 
@@ -31,15 +36,33 @@ extern const uint8_t app_js_end[]          asm("_binary_app_js_end");
 
 #define MAX_POST_BODY 512
 
+/* Reads the request body into buf. On any error it sends the appropriate HTTP
+ * status itself and returns ESP_FAIL, so callers just propagate ESP_FAIL without
+ * sending a second response. An over-length body is rejected with 413 rather
+ * than being silently truncated (which previously parsed as an empty body). */
 static esp_err_t read_body(httpd_req_t *req, char *buf, size_t buf_len)
 {
     int total = req->content_len;
-    if (total <= 0 || total >= (int)buf_len) {
+    if (total < 0) total = 0;
+    if (total >= (int)buf_len) {
+        httpd_resp_set_status(req, "413 Payload Too Large");
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_sendstr(req, "{\"error\":\"request body too large\"}");
+        return ESP_FAIL;
+    }
+    if (total == 0) {
         buf[0] = '\0';
         return ESP_OK;
     }
     int received = httpd_req_recv(req, buf, total);
-    if (received <= 0) return ESP_FAIL;
+    if (received <= 0) {
+        if (received == HTTPD_SOCK_ERR_TIMEOUT) {
+            httpd_resp_send_err(req, HTTPD_408_REQ_TIMEOUT, "Body recv timeout");
+        } else {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Body recv failed");
+        }
+        return ESP_FAIL;
+    }
     buf[received] = '\0';
     return ESP_OK;
 }
@@ -115,8 +138,7 @@ static esp_err_t handler_post_relay(httpd_req_t *req)
 {
     char body[MAX_POST_BODY];
     if (read_body(req, body, sizeof(body)) != ESP_OK) {
-        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Bad body");
-        return ESP_FAIL;
+        return ESP_FAIL;  /* read_body already sent the error response */
     }
 
     int relay_num = 0;
@@ -196,12 +218,23 @@ static esp_err_t handler_get_network(httpd_req_t *req)
         xSemaphoreGive(g_state_mutex);
     }
 
+    nvs_ipcfg_t ipcfg;
+    nvs_config_get_ipcfg(&ipcfg);
+
     cJSON *root = cJSON_CreateObject();
     cJSON_AddStringToObject(root, "wifi_ssid",      wifi_ssid);
     cJSON_AddBoolToObject(root,   "eth_connected",  eth_conn);
     cJSON_AddBoolToObject(root,   "wifi_connected", wifi_conn);
     cJSON_AddStringToObject(root, "eth_ip",         eth_ip);
     cJSON_AddStringToObject(root, "wifi_ip",        wifi_ip);
+
+    /* Stored Ethernet IP configuration (applied at boot) */
+    cJSON *ip = cJSON_AddObjectToObject(root, "eth_ipcfg");
+    cJSON_AddBoolToObject(ip,   "dhcp",    ipcfg.dhcp != 0);
+    cJSON_AddStringToObject(ip, "ip",      ipcfg.ip);
+    cJSON_AddStringToObject(ip, "netmask", ipcfg.netmask);
+    cJSON_AddStringToObject(ip, "gateway", ipcfg.gateway);
+    cJSON_AddStringToObject(ip, "dns",     ipcfg.dns);
 
     char *json = cJSON_PrintUnformatted(root);
     cJSON_Delete(root);
@@ -215,13 +248,52 @@ static esp_err_t handler_get_network(httpd_req_t *req)
     return ESP_OK;
 }
 
+/* POST /api/v1/network/ip — store Ethernet IP config (applied on next reboot) */
+static esp_err_t handler_post_network_ip(httpd_req_t *req)
+{
+    char body[MAX_POST_BODY];
+    if (read_body(req, body, sizeof(body)) != ESP_OK) {
+        return ESP_FAIL;  /* read_body already sent the error response */
+    }
+    cJSON *root = cJSON_Parse(body);
+    if (!root) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid JSON");
+        return ESP_FAIL;
+    }
+
+    nvs_ipcfg_t cfg = {0};
+    cJSON *dhcp_j = cJSON_GetObjectItem(root, "dhcp");
+    cfg.dhcp = (dhcp_j == NULL ||
+                cJSON_IsTrue(dhcp_j) ||
+                (cJSON_IsNumber(dhcp_j) && dhcp_j->valuedouble != 0)) ? 1 : 0;
+
+    cJSON *ip_j   = cJSON_GetObjectItem(root, "ip");
+    cJSON *mask_j = cJSON_GetObjectItem(root, "netmask");
+    cJSON *gw_j   = cJSON_GetObjectItem(root, "gateway");
+    cJSON *dns_j  = cJSON_GetObjectItem(root, "dns");
+    if (cJSON_IsString(ip_j))   strlcpy(cfg.ip,      ip_j->valuestring,   sizeof(cfg.ip));
+    if (cJSON_IsString(mask_j)) strlcpy(cfg.netmask, mask_j->valuestring, sizeof(cfg.netmask));
+    if (cJSON_IsString(gw_j))   strlcpy(cfg.gateway, gw_j->valuestring,   sizeof(cfg.gateway));
+    if (cJSON_IsString(dns_j))  strlcpy(cfg.dns,     dns_j->valuestring,  sizeof(cfg.dns));
+    cJSON_Delete(root);
+
+    if (!cfg.dhcp && (cfg.ip[0] == '\0' || cfg.netmask[0] == '\0')) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Static mode needs ip and netmask");
+        return ESP_FAIL;
+    }
+
+    nvs_config_set_ipcfg(&cfg);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, "{\"ok\":true,\"reboot_required\":true}");
+    return ESP_OK;
+}
+
 /* POST /api/v1/network/wifi */
 static esp_err_t handler_post_wifi(httpd_req_t *req)
 {
     char body[MAX_POST_BODY];
     if (read_body(req, body, sizeof(body)) != ESP_OK) {
-        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Bad body");
-        return ESP_FAIL;
+        return ESP_FAIL;  /* read_body already sent the error response */
     }
     cJSON *root = cJSON_Parse(body);
     if (!root) {
@@ -286,8 +358,7 @@ static esp_err_t handler_post_webhook(httpd_req_t *req)
 {
     char body[MAX_POST_BODY];
     if (read_body(req, body, sizeof(body)) != ESP_OK) {
-        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Bad body");
-        return ESP_FAIL;
+        return ESP_FAIL;  /* read_body already sent the error response */
     }
 
     int input_num = 0;
@@ -358,8 +429,7 @@ static esp_err_t handler_post_input_mode(httpd_req_t *req)
 {
     char body[MAX_POST_BODY];
     if (read_body(req, body, sizeof(body)) != ESP_OK) {
-        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Bad body");
-        return ESP_FAIL;
+        return ESP_FAIL;  /* read_body already sent the error response */
     }
 
     int input_num = 0;
@@ -431,8 +501,7 @@ static esp_err_t handler_post_ntp(httpd_req_t *req)
 {
     char body[MAX_POST_BODY];
     if (read_body(req, body, sizeof(body)) != ESP_OK) {
-        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Bad body");
-        return ESP_FAIL;
+        return ESP_FAIL;  /* read_body already sent the error response */
     }
     cJSON *root = cJSON_Parse(body);
     if (!root) {
@@ -490,6 +559,52 @@ static esp_err_t handler_get_state(httpd_req_t *req)
     return ESP_OK;
 }
 
+static const char *reset_reason_str(esp_reset_reason_t r)
+{
+    switch (r) {
+    case ESP_RST_POWERON:   return "poweron";
+    case ESP_RST_EXT:       return "external";
+    case ESP_RST_SW:        return "software";
+    case ESP_RST_PANIC:     return "panic";
+    case ESP_RST_INT_WDT:   return "int_wdt";
+    case ESP_RST_TASK_WDT:  return "task_wdt";
+    case ESP_RST_WDT:       return "other_wdt";
+    case ESP_RST_DEEPSLEEP: return "deepsleep";
+    case ESP_RST_BROWNOUT:  return "brownout";
+    case ESP_RST_SDIO:      return "sdio";
+    default:                return "unknown";
+    }
+}
+
+/* GET /api/v1/system — firmware/runtime info for remote monitoring */
+static esp_err_t handler_get_system(httpd_req_t *req)
+{
+    const esp_app_desc_t *app = esp_app_get_description();
+
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddStringToObject(root, "fw_version",    app->version);
+    cJSON_AddStringToObject(root, "fw_built",      app->date);
+    cJSON_AddStringToObject(root, "idf_version",   esp_get_idf_version());
+    cJSON_AddNumberToObject(root, "uptime_s",      (double)(esp_timer_get_time() / 1000000));
+    cJSON_AddNumberToObject(root, "free_heap",     (double)esp_get_free_heap_size());
+    cJSON_AddNumberToObject(root, "min_free_heap", (double)esp_get_minimum_free_heap_size());
+    cJSON_AddNumberToObject(root, "largest_block",
+                            (double)heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT));
+    cJSON_AddStringToObject(root, "reset_reason",  reset_reason_str(esp_reset_reason()));
+
+    char *json = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    if (!json) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "OOM");
+        return ESP_FAIL;
+    }
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-cache");
+    httpd_resp_sendstr(req, json);
+    free(json);
+    return ESP_OK;
+}
+
 esp_err_t http_server_start(void)
 {
     httpd_config_t config       = HTTPD_DEFAULT_CONFIG();
@@ -512,6 +627,8 @@ esp_err_t http_server_start(void)
         {.uri = "/api/v1/input_modes/*",   .method = HTTP_POST, .handler = handler_post_input_mode},
         {.uri = "/api/v1/network",         .method = HTTP_GET,  .handler = handler_get_network},
         {.uri = "/api/v1/network/wifi",    .method = HTTP_POST, .handler = handler_post_wifi},
+        {.uri = "/api/v1/network/ip",      .method = HTTP_POST, .handler = handler_post_network_ip},
+        {.uri = "/api/v1/system",          .method = HTTP_GET,  .handler = handler_get_system},
         {.uri = "/api/v1/webhooks",        .method = HTTP_GET,  .handler = handler_get_webhooks},
         {.uri = "/api/v1/webhooks/*",      .method = HTTP_POST, .handler = handler_post_webhook},
         {.uri = "/api/v1/ntp",             .method = HTTP_GET,  .handler = handler_get_ntp},

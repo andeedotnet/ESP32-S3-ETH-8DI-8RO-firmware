@@ -1,6 +1,7 @@
 #include "esp_log.h"
 #include "esp_netif.h"
 #include "esp_event.h"
+#include "mdns.h"
 
 #include "app_state.h"
 #include "nvs_config/nvs_config.h"
@@ -17,6 +18,22 @@
 #include "health/health.h"
 
 static const char *TAG = "main";
+
+/* Advertise the device as relay.local + an _http._tcp service so it can be
+ * reached without knowing the DHCP-assigned IP. Best-effort: failures are logged
+ * but never abort boot. */
+static void mdns_start(void)
+{
+    esp_err_t err = mdns_init();
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "mDNS init failed: %s", esp_err_to_name(err));
+        return;
+    }
+    mdns_hostname_set("relay");
+    mdns_instance_name_set("ESP32 Relay Board");
+    mdns_service_add(NULL, "_http", "_tcp", 80, NULL, 0);
+    ESP_LOGI(TAG, "mDNS started: http://relay.local");
+}
 
 void app_main(void)
 {
@@ -43,6 +60,7 @@ void app_main(void)
     ESP_ERROR_CHECK(ntp_init());
     ESP_ERROR_CHECK(webhook_task_start());
     ESP_ERROR_CHECK(http_server_start());
+    mdns_start();
     ESP_ERROR_CHECK(health_task_start());
 
     buzzer_beep(100);

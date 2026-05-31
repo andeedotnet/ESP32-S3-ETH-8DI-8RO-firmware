@@ -46,28 +46,44 @@ esp_err_t relay_init(void)
     return ESP_OK;
 }
 
+/* Compute a new mask from the current shadow under the lock, then apply it —
+ * keeps the whole RMW atomic with respect to other relay mutators. */
+static esp_err_t relay_rmw(uint8_t set_bits, uint8_t clear_bits, uint8_t toggle_bits)
+{
+    if (xSemaphoreTake(g_state_mutex, pdMS_TO_TICKS(100)) != pdTRUE) {
+        return ESP_ERR_TIMEOUT;
+    }
+    uint8_t mask = g_state.relay_mask;
+    mask = (uint8_t)((mask | set_bits) & ~clear_bits) ^ toggle_bits;
+    esp_err_t ret = ESP_OK;
+    if (mask != g_state.relay_mask) {
+        ret = tca9554_write_output(mask);
+        if (ret == ESP_OK) {
+            ESP_LOGI(TAG, "Relays 0x%02x -> 0x%02x", g_state.relay_mask, mask);
+            g_state.relay_mask = mask;
+        }
+    }
+    xSemaphoreGive(g_state_mutex);
+    return ret;
+}
+
 esp_err_t relay_set(uint8_t relay_num, bool state)
 {
     if (relay_num < 1 || relay_num > BOARD_RELAY_COUNT) {
         return ESP_ERR_INVALID_ARG;
     }
-    if (xSemaphoreTake(g_state_mutex, pdMS_TO_TICKS(100)) != pdTRUE) {
-        return ESP_ERR_TIMEOUT;
-    }
-    uint8_t mask = g_state.relay_mask;
-    uint8_t bit  = (uint8_t)(1u << (relay_num - 1));
-    if (state) {
-        mask |= bit;
-    } else {
-        mask &= ~bit;
-    }
-    esp_err_t ret = tca9554_write_output(mask);
-    if (ret == ESP_OK) {
-        g_state.relay_mask = mask;
-        ESP_LOGI(TAG, "Relay %d -> %s (mask=0x%02x)", relay_num, state ? "ON" : "OFF", mask);
-    }
-    xSemaphoreGive(g_state_mutex);
-    return ret;
+    uint8_t bit = (uint8_t)(1u << (relay_num - 1));
+    return relay_rmw(state ? bit : 0, state ? 0 : bit, 0);
+}
+
+esp_err_t relay_set_masked(uint8_t affect_mask, bool on)
+{
+    return relay_rmw(on ? affect_mask : 0, on ? 0 : affect_mask, 0);
+}
+
+esp_err_t relay_toggle_mask(uint8_t toggle_mask)
+{
+    return relay_rmw(0, 0, toggle_mask);
 }
 
 uint8_t relay_get_mask(void)

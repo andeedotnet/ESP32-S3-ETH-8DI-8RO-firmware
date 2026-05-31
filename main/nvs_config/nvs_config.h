@@ -36,3 +36,16 @@ esp_err_t nvs_config_set_relay_target(int input_idx, uint8_t relay_num);
 /* NTP configuration */
 esp_err_t nvs_config_get_ntp(char *server, size_t server_len, char *tz, size_t tz_len);
 esp_err_t nvs_config_set_ntp(const char *server, const char *tz);
+
+/* Ethernet IP configuration. dhcp=1 → DHCP (ip/mask/gw/dns ignored), dhcp=0 →
+ * static. Strings are dotted-quad IPv4; empty string = unset. Applied at boot. */
+typedef struct {
+    uint8_t dhcp;        /* 1 = DHCP (default), 0 = static */
+    char    ip[16];
+    char    netmask[16];
+    char    gateway[16];
+    char    dns[16];
+} nvs_ipcfg_t;
+
+esp_err_t nvs_config_get_ipcfg(nvs_ipcfg_t *cfg);
+esp_err_t nvs_config_set_ipcfg(const nvs_ipcfg_t *cfg);

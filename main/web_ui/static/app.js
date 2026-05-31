@@ -29,6 +29,7 @@ document.getElementById('mainTabs').addEventListener('shown.bs.tab', e => {
   if (target === '#page-network')  loadNetwork();
   if (target === '#page-webhooks') loadWebhooks();
   if (target === '#page-ntp')      loadNtp();
+  if (target === '#page-system')   loadSystem();
 });
 
 /* ---- Relays ---- */
@@ -178,8 +179,79 @@ function loadNetwork() {
       addBadge('Ethernet', d.eth_ip, d.eth_connected);
       addBadge('WiFi', d.wifi_ip, d.wifi_connected);
       if (d.wifi_ssid) document.getElementById('wifi-ssid').value = d.wifi_ssid;
+      if (d.eth_ipcfg) fillIpConfig(d.eth_ipcfg);
     })
     .catch(e => console.error('network load failed', e));
+}
+
+function fillIpConfig(cfg) {
+  document.getElementById('ip-dhcp').checked   = !!cfg.dhcp;
+  document.getElementById('ip-static').checked = !cfg.dhcp;
+  document.getElementById('ip-addr').value = cfg.ip      || '';
+  document.getElementById('ip-mask').value = cfg.netmask || '';
+  document.getElementById('ip-gw').value   = cfg.gateway || '';
+  document.getElementById('ip-dns').value  = cfg.dns     || '';
+  onIpModeChange();
+}
+
+function onIpModeChange() {
+  const dhcp = document.getElementById('ip-dhcp').checked;
+  document.getElementById('ip-static-fields').style.opacity = dhcp ? '0.4' : '1';
+  ['ip-addr', 'ip-mask', 'ip-gw', 'ip-dns'].forEach(id => {
+    document.getElementById(id).disabled = dhcp;
+  });
+}
+
+function saveIpConfig() {
+  const dhcp = document.getElementById('ip-dhcp').checked;
+  const st = document.getElementById('ip-status');
+  const body = {
+    dhcp,
+    ip:      document.getElementById('ip-addr').value.trim(),
+    netmask: document.getElementById('ip-mask').value.trim(),
+    gateway: document.getElementById('ip-gw').value.trim(),
+    dns:     document.getElementById('ip-dns').value.trim()
+  };
+  if (!dhcp && (!body.ip || !body.netmask)) {
+    st.textContent = 'Static mode needs IP and subnet mask.'; st.className = 'small mt-2 text-danger'; return;
+  }
+  st.textContent = 'Saving...'; st.className = 'small mt-2 text-secondary';
+  fetch('/api/v1/network/ip', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body)
+  })
+  .then(r => r.json())
+  .then(() => { st.textContent = 'Saved. Reboot the device to apply.'; st.className = 'small mt-2 text-success'; })
+  .catch(e => { st.textContent = 'Error: ' + e; st.className = 'small mt-2 text-danger'; });
+}
+
+/* ---- System ---- */
+function fmtUptime(s) {
+  const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600);
+  const m = Math.floor((s % 3600) / 60), sec = s % 60;
+  return (d ? d + 'd ' : '') + (h ? h + 'h ' : '') + (m ? m + 'm ' : '') + sec + 's';
+}
+
+function loadSystem() {
+  fetch('/api/v1/system')
+    .then(r => r.json())
+    .then(d => {
+      const rows = [
+        ['Firmware version', d.fw_version],
+        ['Firmware built',   d.fw_built],
+        ['ESP-IDF version',  d.idf_version],
+        ['Uptime',           fmtUptime(d.uptime_s)],
+        ['Free heap',        (d.free_heap / 1024).toFixed(1) + ' KB'],
+        ['Min free heap',    (d.min_free_heap / 1024).toFixed(1) + ' KB'],
+        ['Largest block',    (d.largest_block / 1024).toFixed(1) + ' KB'],
+        ['Last reset reason', d.reset_reason]
+      ];
+      document.getElementById('system-tbody').innerHTML = rows.map(
+        ([k, v]) => '<tr><td class="text-secondary" style="width:45%">' + k + '</td><td><code>' + escHtml(String(v)) + '</code></td></tr>'
+      ).join('');
+    })
+    .catch(e => console.error('system load failed', e));
 }
 
 function saveWifi() {

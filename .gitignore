@@ -16,6 +16,7 @@ dependencies.lock
 # Editor / IDE
 .vscode/
 .idea/
+.cache/
 *.swp
 *.swo
 *~

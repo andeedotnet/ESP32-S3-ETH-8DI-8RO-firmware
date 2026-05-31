@@ -79,21 +79,12 @@ static void dispatch(int input_idx, bool level)
     if (mode == NVS_INPUT_MODE_MOMENTARY && level) {
         uint8_t rmask = (uint8_t)(1 << input_idx);
         nvs_config_get_relay_target(input_idx, &rmask);
-        uint8_t current_mask = relay_get_mask();
-        for (int r = 0; r < BOARD_RELAY_COUNT; r++) {
-            if (rmask & (1 << r)) {
-                relay_set(r + 1, !((current_mask >> r) & 1));
-            }
-        }
+        relay_toggle_mask(rmask);
         ESP_LOGI(TAG, "DI%d momentary: relay_mask=0x%02x toggled", input_idx + 1, rmask);
     } else if (mode == NVS_INPUT_MODE_LATCHING) {
         uint8_t rmask = (uint8_t)(1 << input_idx);
         nvs_config_get_relay_target(input_idx, &rmask);
-        for (int r = 0; r < BOARD_RELAY_COUNT; r++) {
-            if (rmask & (1 << r)) {
-                relay_set(r + 1, !level);
-            }
-        }
+        relay_set_masked(rmask, !level);
         ESP_LOGI(TAG, "DI%d latching: relay_mask=0x%02x -> %d", input_idx + 1, rmask, !level);
     }
 
@@ -141,9 +132,7 @@ void webhook_apply_boot_states(void)
         if (mode == NVS_INPUT_MODE_LATCHING) {
             uint8_t rmask = (uint8_t)(1 << i);
             nvs_config_get_relay_target(i, &rmask);
-            for (int r = 0; r < BOARD_RELAY_COUNT; r++) {
-                if (rmask & (1 << r)) relay_set(r + 1, !states[i]);
-            }
+            relay_set_masked(rmask, !states[i]);
             ESP_LOGI(TAG, "Boot latching: DI%d relay_mask=0x%02x -> %d", i + 1, rmask, !states[i]);
         }
     }

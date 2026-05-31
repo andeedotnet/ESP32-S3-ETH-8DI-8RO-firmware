@@ -2,21 +2,31 @@
 
 Custom ESP-IDF firmware for the ESP32-S3-ETH-8DI-8RO industrial relay board.
 
+## Companion module
+
+> This firmware was built specifically for the
+> **[ESP32-S3-ETH-8DI-8RO Companion Module](https://github.com/andeedotnet/ESP32-S3-ETH-8DI-8RO-companion-module)**.
+>
+> The companion module is the intended way to integrate this board into your setup — it drives
+> the relays, reads the inputs, and consumes the webhooks through the REST API documented below.
+> If you are deploying this board, start there.
+
 ## Features
 
-- **REST API** — control relays, read relay/input states, configure webhooks, input modes, and NTP
-- **Single-page web UI** — relay control, digital input monitoring, WiFi/network settings, webhook configuration, input mode selection, NTP settings, API docs
+- **REST API** — control relays, read relay/input states, configure webhooks, input modes, network, and NTP; query firmware/runtime info
+- **Single-page web UI** — relay control, digital input monitoring, network settings (incl. static IP), webhook configuration, input mode selection, NTP settings, system info, API docs
 - **Input Modes** — per-input: no relay action / Momentary (rising edge toggles target relay(s)) / Latching (relay mirrors input)
 - **Multi-relay target** — each digital input can target any combination of the 8 relays (bitmask)
 - **Webhooks** — HTTP POST to a configurable URL on digital input state change (rising, falling, or any edge); independent of relay mode; can be enabled/disabled per input
 - **NTP** — configurable NTP server and POSIX timezone; current time shown in web UI
-- **Dual network** — W5500 SPI Ethernet (DHCP) and WiFi station mode (DHCP); credentials persisted in NVS flash; WiFi reconnects indefinitely after disconnect
+- **Dual network** — W5500 SPI Ethernet and WiFi station mode; credentials persisted in NVS flash; WiFi reconnects indefinitely with exponential backoff. Ethernet supports DHCP (default) or a configurable static IP
+- **mDNS** — reachable as `relay.local` without knowing the DHCP-assigned IP
 - **Status LED** — orange blinking while waiting for network, solid blue once connected
-- **Robust by design** — `configASSERT` on all FreeRTOS allocations, bounds checks on all NVS keys, HTTP 500 on OOM, 3 s HTTP timeout vs 15 s WDT
+- **Robust by design** — `configASSERT` on all FreeRTOS allocations, bounds checks on all NVS keys, HTTP 500 on OOM / 413 on oversized bodies, 3 s HTTP timeout vs 15 s panic-enabled WDT, heap-floor auto-reboot, core dump to flash. Config is mirrored in a mutex-protected RAM cache so hot paths never touch flash; all multi-relay writes are atomic
 
 ## REST API
 
-Base URL: `http://<device-ip>`
+Base URL: `http://relay.local` (mDNS) or `http://<device-ip>`
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
@@ -26,12 +36,14 @@ Base URL: `http://<device-ip>`
 | GET | `/api/v1/state` | Combined relay + input snapshot (used for live polling) |
 | GET | `/api/v1/input_modes` | Read all 8 input modes + relay targets |
 | POST | `/api/v1/input_modes/{1-8}` | Set input mode — body: `{"mode": 1, "relay_mask": 3}` |
-| GET | `/api/v1/network` | Network status (IP addresses, connection state) |
+| GET | `/api/v1/network` | Network status + stored SSID + `eth_ipcfg` (DHCP/static) |
 | POST | `/api/v1/network/wifi` | Save WiFi credentials — body: `{"ssid":"…","password":"…"}` |
+| POST | `/api/v1/network/ip` | Save Ethernet IP config — body: `{"dhcp":false,"ip":"…","netmask":"…","gateway":"…","dns":"…"}` (applied on next reboot) |
 | GET | `/api/v1/webhooks` | Read all webhook configurations |
 | POST | `/api/v1/webhooks/{1-8}` | Set webhook — body: `{"url":"http://…","trigger":"rising","enabled":true}` |
 | GET | `/api/v1/ntp` | Read NTP config and current device time |
 | POST | `/api/v1/ntp` | Set NTP server + timezone — body: `{"server":"pool.ntp.org","tz":"CET-1CEST,M3.5.0,M10.5.0/3"}` |
+| GET | `/api/v1/system` | Firmware version, ESP-IDF version, uptime, heap stats, last reset reason |
 
 Full API documentation is also available in the web UI under the **API** tab.
 
