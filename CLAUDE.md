@@ -46,13 +46,14 @@ All source lives in `main/` as a **single ESP-IDF component**. Sub-directories a
 | `relay` | `main/relay/` | TCA9554PWR driver; shadow byte for read-modify-write without I2C readback |
 | `digital_input` | `main/digital_input/` | GPIO ISR → 20 ms debounce task → `g_di_change_queue` |
 | `ethernet` | `main/ethernet/` | W5500 via `espressif/ethernet_init ~1.3.0`; sets `LED_CONNECTED` on IP event |
-| `wifi_manager` | `main/wifi/` | STA mode, always reconnects on disconnect (no give-up limit), credentials from NVS |
+| `wifi_manager` | `main/wifi/` | STA mode, always reconnects on disconnect (no give-up limit) with exponential backoff 1→30 s via `esp_timer`, credentials from NVS |
 | `ntp` | `main/ntp/` | SNTP init from NVS server + timezone; restartable via `ntp_init()` |
 | `nvs_config` | `main/nvs_config/` | NVS namespace `"app_cfg"`: WiFi creds, 8 webhook configs, 8 input modes + relay targets, NTP server/tz |
 | `http_server` | `main/http_server/` | REST endpoints + serves embedded web UI assets; wildcard URI matching |
 | `webhook` | `main/webhook/` | Consumes `g_di_change_queue`; relay dispatch (momentary/latching) + webhook POST (independent of relay mode) |
 | `led` | `main/led/` | WS2812 via RMT copy encoder; pattern queue (depth 1, `xQueueOverwrite`) |
 | `buzzer` | `main/buzzer/` | GPIO46 simple on/off |
+| `health` | `main/health/` | Low-prio monitor task subscribed to the Task WDT; logs heap trend, reboots on critical heap floor (`HEALTH_HEAP_FLOOR`) |
 
 **LED patterns** (`main/led/led.h`):
 - `LED_BOOTING` — orange blink (500 ms on/off), active from boot until network
@@ -116,7 +117,14 @@ Relay control goes through the TCA9554 expander — not directly via ESP32 GPIOs
 
 **Robustness notes:**
 - All JSON handlers NULL-check `cJSON_PrintUnformatted()` and return HTTP 500 on heap exhaustion.
-- WiFi always retries on disconnect — no give-up limit.
-- Webhook HTTP timeout is 3 s; task WDT is 15 s (`CONFIG_ESP_TASK_WDT_TIMEOUT_S=15`).
+- WiFi always retries on disconnect — no give-up limit — but with exponential backoff (1→30 s) so a down/flapping AP can't spin a tight reconnect loop. Backoff resets on `GOT_IP` and on user-initiated reconnect.
+- Webhook HTTP timeout is 3 s; task WDT is 15 s (`CONFIG_ESP_TASK_WDT_TIMEOUT_S=15`) with `CONFIG_ESP_TASK_WDT_PANIC=y` — a genuinely hung task reboots the board.
+- `webhook_task`, `di_task` and the `health` task are subscribed to the Task WDT (`esp_task_wdt_add`) and feed it each loop; their queue receives use a 1 s timeout so a blocked task still resets the dog rather than waiting on `portMAX_DELAY`.
+- `health` task reboots the board if free heap drops below `HEALTH_HEAP_FLOOR` (24 KB) — pre-empts allocation failures across HTTP/TCP-IP.
+- Panics write a core dump to the `coredump` flash partition (`CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH=y`); read it back with `idf.py -p PORT coredump-info` / `coredump-debug`.
+- Bluetooth is fully disabled (`CONFIG_BT_ENABLED=n` in `sdkconfig.defaults`) — Ethernet/WiFi-only device, no BT controller in the image.
+- `tca9554_write_output()` retries up to 3× so a transient I2C glitch doesn't silently drop a relay command.
 - `webhook_post()` checks `g_state.eth_connected || g_state.wifi_connected` before attempting HTTP.
 - All FreeRTOS object allocations (mutex, queues, tasks) guarded with `configASSERT()`.
+
+**Config regeneration:** `sdkconfig.defaults` is the source of truth and is only applied when `sdkconfig` is absent. After editing defaults, regenerate with `rm sdkconfig && idf.py reconfigure` (or `idf.py fullclean` if the build dir was moved between absolute paths — stale toolchain spec paths otherwise break the build).

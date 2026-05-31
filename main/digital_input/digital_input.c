@@ -2,6 +2,7 @@
 #include "app_state.h"
 #include "board_config.h"
 #include "esp_log.h"
+#include "esp_task_wdt.h"
 #include "driver/gpio.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -20,11 +21,17 @@ static void IRAM_ATTR di_isr_handler(void *arg)
 
 static void di_task(void *arg)
 {
+    /* Subscribe to the (panic-enabled) WDT so a wedged input task reboots. */
+    ESP_ERROR_CHECK(esp_task_wdt_add(NULL));
+
     uint32_t gpio_num;
     while (1) {
-        if (xQueueReceive(s_gpio_evt_queue, &gpio_num, portMAX_DELAY) != pdTRUE) {
+        /* Wake at least once per second to feed the dog even with no edges. */
+        if (xQueueReceive(s_gpio_evt_queue, &gpio_num, pdMS_TO_TICKS(1000)) != pdTRUE) {
+            esp_task_wdt_reset();
             continue;
         }
+        esp_task_wdt_reset();
         vTaskDelay(pdMS_TO_TICKS(20)); /* debounce */
 
         int idx = (int)gpio_num - BOARD_DI_GPIO_BASE;

@@ -14,6 +14,7 @@
 #include "ntp/ntp.h"
 #include "led/led.h"
 #include "buzzer/buzzer.h"
+#include "health/health.h"
 
 static const char *TAG = "main";
 
@@ -42,6 +43,7 @@ void app_main(void)
     ESP_ERROR_CHECK(ntp_init());
     ESP_ERROR_CHECK(webhook_task_start());
     ESP_ERROR_CHECK(http_server_start());
+    ESP_ERROR_CHECK(health_task_start());
 
     buzzer_beep(100);
     ESP_LOGI(TAG, "Relay board ready");

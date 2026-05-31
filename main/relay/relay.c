@@ -7,11 +7,20 @@
 static const char *TAG = "relay";
 static i2c_master_dev_handle_t s_dev = NULL;
 
-/* Write the output latch register of the TCA9554 */
+/* Write the output latch register of the TCA9554.
+ * Retries a couple of times so a transient bus glitch doesn't silently drop a
+ * relay command — important when the relay state is safety-relevant. */
 static esp_err_t tca9554_write_output(uint8_t mask)
 {
     uint8_t buf[2] = {BOARD_TCA9554_REG_OUT, mask};
-    return i2c_master_transmit(s_dev, buf, sizeof(buf), pdMS_TO_TICKS(100));
+    esp_err_t ret = ESP_FAIL;
+    for (int attempt = 0; attempt < 3; attempt++) {
+        ret = i2c_master_transmit(s_dev, buf, sizeof(buf), pdMS_TO_TICKS(100));
+        if (ret == ESP_OK) return ESP_OK;
+        ESP_LOGW(TAG, "TCA9554 write failed (attempt %d): %s",
+                 attempt + 1, esp_err_to_name(ret));
+    }
+    return ret;
 }
 
 esp_err_t relay_init(void)

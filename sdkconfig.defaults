@@ -42,5 +42,17 @@ CONFIG_LOG_MAXIMUM_LEVEL_DEBUG=y
 # NVS — no encryption needed for this application
 CONFIG_NVS_ENCRYPTION=n
 
-# WDT: 15s gives HTTP client (3s timeout) ample margin before watchdog trips
+# Bluetooth: this is an Ethernet/WiFi-only device — keep BT/BLE fully out of the
+# image so the controller never claims RAM and cannot be enabled by accident.
+CONFIG_BT_ENABLED=n
+
+# WDT: 15s gives HTTP client (3s timeout) ample margin before watchdog trips.
+# PANIC=y so a genuinely hung task reboots the board instead of only logging —
+# preferred for a 24/7 unattended industrial controller.
 CONFIG_ESP_TASK_WDT_TIMEOUT_S=15
+CONFIG_ESP_TASK_WDT_PANIC=y
+
+# Core dump to flash: capture a backtrace of any panic for post-mortem analysis
+# in the field (read back with `idf.py coredump-info` / `coredump-debug`).
+# Requires the `coredump` partition declared in partitions.csv.
+CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH=y

@@ -7,6 +7,7 @@
 #include "esp_log.h"
 #include "esp_http_client.h"
 #include "esp_timer.h"
+#include "esp_task_wdt.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include <stdio.h>
@@ -116,11 +117,17 @@ static void dispatch(int input_idx, bool level)
 
 static void webhook_task(void *arg)
 {
+    /* Subscribe to the (panic-enabled) WDT: a webhook stuck in the HTTP client
+     * past the watchdog window then reboots the board instead of wedging. */
+    ESP_ERROR_CHECK(esp_task_wdt_add(NULL));
+
     di_event_t evt;
     while (1) {
-        if (xQueueReceive(g_di_change_queue, &evt, portMAX_DELAY) == pdTRUE) {
+        /* Wake at least once per second to feed the dog even when idle. */
+        if (xQueueReceive(g_di_change_queue, &evt, pdMS_TO_TICKS(1000)) == pdTRUE) {
             dispatch(evt.input_idx, evt.level);
         }
+        esp_task_wdt_reset();
     }
 }
 
