@@ -111,7 +111,7 @@ idf.py -p /dev/cu.usbmodem* erase-flash
 
 ## Board Overview
 
-ESP32-S3-ETH-8DI-8RO is an industrial-grade board with 8 relay outputs and 8 optocoupler-isolated digital inputs, built around the ESP32-S3 microcontroller.
+[ESP32-S3-ETH-8DI-8RO](https://www.waveshare.com/wiki/ESP32-S3-ETH-8DI-8RO) is an industrial-grade board with 8 relay outputs and 8 optocoupler-isolated digital inputs, built around the ESP32-S3 microcontroller.
 
 **Specifications**
 - Supply: 7–36 V DC (screw terminal) or 5 V USB-C
